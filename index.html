@@ -1332,7 +1332,7 @@ document.getElementById('export').addEventListener('click', ()=>{
   for(let y=9;y<H;y+=9){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
   g.stroke();
 
-  const iconS = 14;
+  const iconS = 9;
   g.lineWidth = 3;
   for(const p of points){
     const b = BUILDINGS[p.t];
