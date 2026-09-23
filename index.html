@@ -214,13 +214,18 @@ function hexA(hex, a){
 }
 
 /* =====================================================
-   建筑点位定义
+   ★ 建筑点位定义（正确换算：游戏数值 ÷ 4 = 地皮半径）
+   游戏1格地皮 = 4个游戏单位（墙壁）
    ===================================================== */
 const BUILDINGS = [
-  { name:'龙鳞火炉',   radius:9.5, color:'#e0402c', shape:'circle'   },
-  { name:'冰眼结晶器', radius:35,  color:'#2f6fd9', shape:'circle'   },
-  { name:'雪球发射器', radius:15,  color:'#2f6fd9', shape:'x'        },
-  { name:'避雷针',     radius:40,  color:'#3a9c3a', shape:'triangle' }
+  // 龙鳞火炉：9.5 / 4 = 2.375
+  { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'circle',   gameUnit:9.5  },
+  // 冰眼结晶器：35 / 4 = 8.75
+  { name:'冰眼结晶器', radius:8.75,  color:'#2f6fd9', shape:'circle',   gameUnit:35   },
+  // 雪球发射器：15 / 4 = 3.75
+  { name:'雪球发射器', radius:3.75,  color:'#2f6fd9', shape:'x',        gameUnit:15   },
+  // 避雷针：40 / 4 = 10
+  { name:'避雷针',     radius:10,    color:'#3a9c3a', shape:'triangle', gameUnit:40   }
 ];
 
 /* =====================================================
@@ -297,7 +302,7 @@ function countPainted(){
 }
 
 /* =====================================================
-   图标绘制（通用，可用于主画布 / 导出画布）
+   图标绘制
    ===================================================== */
 function drawIcon(c, cx, cy, b, size){
   c.fillStyle = b.color;
@@ -344,7 +349,6 @@ function render(){
 
   const mapW = W*scale, mapH = H*scale;
 
-  // 地图底板
   ctx.fillStyle = '#1d1915';
   ctx.fillRect(offX, offY, mapW, mapH);
 
@@ -353,7 +357,6 @@ function render(){
   const gx1 = Math.min(W, Math.ceil((cssW-offX)/scale));
   const gy1 = Math.min(H, Math.ceil((cssH-offY)/scale));
 
-  // 地皮
   if(gx1>gx0 && gy1>gy0){
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(
@@ -363,7 +366,6 @@ function render(){
     );
   }
 
-  // 网格
   ctx.save();
   ctx.beginPath();
   ctx.rect(offX, offY, mapW, mapH);
@@ -402,7 +404,6 @@ function render(){
   }
   ctx.restore();
 
-  // 地图边框
   ctx.strokeStyle = 'rgba(217,164,65,0.9)';
   ctx.lineWidth = 2;
   ctx.strokeRect(offX-1, offY-1, mapW+2, mapH+2);
@@ -436,7 +437,6 @@ function render(){
   /* ============ 悬停效果 ============ */
   if(!panning && hoverX>=0 && hoverX<W && hoverY>=0 && hoverY<H){
 
-    // 画笔模式：格子高亮
     if(tool === 'brush' && scale >= 4){
       const px = offX + hoverX*scale;
       const py = offY + hoverY*scale;
@@ -446,7 +446,6 @@ function render(){
                      Math.round(scale)+2, Math.round(scale)+2);
     }
 
-    // 点位模式：虚线预览半径
     if(tool === 'place'){
       const b  = BUILDINGS[curB];
       const cx = offX + (hoverX+0.5)*scale;
@@ -484,7 +483,8 @@ function drawLegend(){
   let maxW = 0;
   for(const ti of list){
     const b = BUILDINGS[ti];
-    const w = ctx.measureText(`${b.name} ${b.radius}`).width;
+    const label = `${b.name} (半径${b.gameUnit}, ${b.radius}格)`;
+    const w = ctx.measureText(label).width;
     if(w > maxW) maxW = w;
   }
   const boxW = maxW + 34 + pad*2;
@@ -504,7 +504,7 @@ function drawLegend(){
     ctx.font = '12px system-ui,sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${b.name} ${b.radius}`, x+pad+20, cy);
+    ctx.fillText(`${b.name} (半径${b.gameUnit}, ${b.radius}格)`, x+pad+20, cy);
   });
 }
 
@@ -574,7 +574,6 @@ function toGrid(px,py){
   };
 }
 
-/* 命中已有点位（屏幕坐标） */
 function hitPoint(px, py){
   const hitR = clamp(scale*0.6, 10, 16);
   for(let i=points.length-1;i>=0;i--){
@@ -647,7 +646,7 @@ function paintLine(x0,y0,x1,y1){
 }
 
 /* =====================================================
-   历史（同时记录地皮与点位）
+   历史
    ===================================================== */
 function snap(){
   return { d: data.slice(), p: points.map(o=>({...o})) };
@@ -740,17 +739,13 @@ canvas.addEventListener('pointerdown', e=>{
   e.preventDefault();
   e.stopPropagation();
 
-  // ---------- 拖拽工具：任意键 ----------
   if(tool === 'drag'){ startPan(e); return; }
 
   const p = getPos(e);
 
-  // ---------- 点位工具 ----------
   if(tool === 'place'){
-    // 中键 / 空格+左键 → 拖拽
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
 
-    // 右键 → 删除点位
     if(e.button === 2){
       const idx = hitPoint(p.x, p.y);
       if(idx >= 0){
@@ -761,7 +756,6 @@ canvas.addEventListener('pointerdown', e=>{
       return;
     }
 
-    // 左键 → 放置 / 点击已有点位则删除
     if(e.button === 0){
       const idx = hitPoint(p.x, p.y);
       if(idx >= 0){
@@ -781,7 +775,6 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
-  // ---------- 画笔工具：只响应左键 ----------
   if(e.button !== 0) return;
 
   const g = toGrid(p.x, p.y);
@@ -934,7 +927,7 @@ BUILDINGS.forEach((b, i)=>{
   el.innerHTML =
     `<span class="bico" style="color:${b.color}">${SHAPE_CHAR[b.shape]}</span>` +
     `<span class="bname">${b.name}</span>` +
-    `<span class="brad">${b.radius}</span>`;
+    `<span class="brad">${b.gameUnit}</span>`;
   el.addEventListener('click', ()=>{
     setBuilding(i);
     setTool('place');
@@ -1027,7 +1020,6 @@ document.getElementById('export').addEventListener('click', ()=>{
   g.fillRect(0,0,c.width,c.height);
   g.drawImage(dc, 0,0,W,H, 0,0,c.width,c.height);
 
-  // 细网格
   g.strokeStyle = 'rgba(255,255,255,0.11)';
   g.lineWidth = 1;
   g.beginPath();
@@ -1035,14 +1027,12 @@ document.getElementById('export').addEventListener('click', ()=>{
   for(let y=1;y<H;y++){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
   g.stroke();
 
-  // 10格粗线
   g.strokeStyle = 'rgba(255,255,255,0.28)';
   g.beginPath();
   for(let x=10;x<W;x+=10){ g.moveTo(x*cell+0.5,0); g.lineTo(x*cell+0.5,c.height); }
   for(let y=10;y<H;y+=10){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
   g.stroke();
 
-  // 半径圆
   const iconS = 7;
   g.lineWidth = 2;
   for(const p of points){
@@ -1054,7 +1044,6 @@ document.getElementById('export').addEventListener('click', ()=>{
     g.strokeStyle = hexA(b.color, 0.78);
     g.stroke();
   }
-  // 点位图标
   for(const p of points){
     const b = BUILDINGS[p.t];
     drawIcon(g, (p.x+0.5)*cell, (p.y+0.5)*cell, b, iconS);
@@ -1070,7 +1059,7 @@ document.getElementById('export').addEventListener('click', ()=>{
 /* =====================================================
    保存 / 读取
    ===================================================== */
-const STORE_KEY = 'turf_planner_v4';
+const STORE_KEY = 'turf_planner_v6';
 
 function u8ToB64(u8){
   let s='';
@@ -1089,7 +1078,7 @@ function b64ToU8(b64){
 document.getElementById('save').addEventListener('click', ()=>{
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
-      w:W, h:H, d:u8ToB64(data), pts:points, v:4
+      w:W, h:H, d:u8ToB64(data), pts:points, v:6
     }));
     toast('已保存到浏览器');
   }catch(err){
