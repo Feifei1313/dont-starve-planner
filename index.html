@@ -66,6 +66,20 @@
     background:repeating-linear-gradient(45deg,#2b2b2b 0 5px,#3c3c3c 5px 10px);
   }
 
+  /* ★ 对齐模式按钮 */
+  .align-row{
+    display:flex;gap:5px;margin-bottom:8px;
+  }
+  .align-row button{
+    flex:1;background:#2a231d;color:#d8cfc0;border:1px solid #3a322a;
+    border-radius:5px;padding:6px 4px;font-size:11.5px;cursor:pointer;
+    font-family:inherit;transition:.12s;
+  }
+  .align-row button:hover{background:#3a3128;border-color:#5a4c3e;color:#fff}
+  .align-row button.on{
+    background:#d9a441;color:#1a1410;border-color:#d9a441;font-weight:600;
+  }
+
   /* 建筑点位列表 */
   #builds{display:flex;flex-direction:column;gap:3px}
   .bld{
@@ -132,7 +146,6 @@
     pointer-events:none;border:1px solid #2a241e;
   }
 
-  /* 输入框浮层 */
   #textInput{
     position:absolute;
     display:none;
@@ -188,6 +201,10 @@
     <div id="palette"></div>
 
     <div class="sec">建筑点位</div>
+    <div class="align-row">
+      <button id="alignCenter" class="on">格子中心</button>
+      <button id="alignCross">交叉点</button>
+    </div>
     <div id="builds"></div>
     <button class="side-btn" id="clearPts">清空所有点位</button>
 
@@ -261,7 +278,7 @@ function hexA(hex, a){
 }
 
 /* =====================================================
-   文字颜色选项
+   文字颜色
    ===================================================== */
 const TEXT_COLORS = [
   '#000000','#ffffff','#e0402c','#d9a441','#3a9c3a',
@@ -270,7 +287,7 @@ const TEXT_COLORS = [
 ];
 
 /* =====================================================
-   建筑点位定义
+   建筑点位
    ===================================================== */
 const BUILDINGS = [
   { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'circle',   gameUnit:9.5  },
@@ -283,13 +300,16 @@ const BUILDINGS = [
    状态
    ===================================================== */
 let W = 100, H = 100;
-let data  = new Uint8Array(W*H);     // 地皮
-let points = [];                      // 点位 [{x,y,t}]
-let texts  = [];                      // 文字 [{x,y,text}]
+let data  = new Uint8Array(W*H);
+let points = [];                      // {x,y,t}，x/y 为空间坐标(0..W)，中心模式是 X.5
+let texts  = [];                      // {x,y,text}，格子坐标
 let paintedCount = 0;
 
 let textColor = '#000000';
 let textScale = 1.0;
+
+/* ★ 对齐模式：'center' 或 'cross' */
+let alignMode = 'center';
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -307,18 +327,19 @@ let scale = 12;
 let offX = 0, offY = 0;
 const MIN_SCALE = 1.5, MAX_SCALE = 60;
 
-let tool = 'brush';        // 'brush' | 'drag' | 'place' | 'text'
-let cur = 1;               // 当前颜色索引
-let curB = 0;              // 当前建筑索引
+let tool = 'brush';
+let cur = 1;
+let curB = 0;
 
 let drawing = false;
 let panning = false;
 let lastGX = null, lastGY = null;
 let panStart = {x:0, y:0, ox:0, oy:0};
 let hoverX = -1, hoverY = -1;
+let hoverCX = -1, hoverCY = -1;
 let spaceDown = false;
 
-let editingText = null;    // {x,y,isNew} 正在编辑的格子
+let editingText = null;
 let strokeSnap = null, strokeDirty = false;
 let history = [], future = [];
 const MAX_HISTORY = 60;
@@ -326,7 +347,7 @@ const MAX_HISTORY = 60;
 const clamp = (v,a,b)=> v<a?a:(v>b?b:v);
 
 /* =====================================================
-   离屏地皮画布
+   离屏画布
    ===================================================== */
 function rebuild(){
   imgData = dctx.createImageData(W,H);
@@ -368,9 +389,7 @@ function drawIcon(c, cx, cy, b, size){
   c.lineCap = 'round';
 
   if(b.shape === 'circle'){
-    c.beginPath();
-    c.arc(cx, cy, size, 0, Math.PI*2);
-    c.fill();
+    c.beginPath(); c.arc(cx, cy, size, 0, Math.PI*2); c.fill();
   }else if(b.shape === 'x'){
     c.beginPath();
     c.moveTo(cx-size, cy-size); c.lineTo(cx+size, cy+size);
@@ -379,15 +398,14 @@ function drawIcon(c, cx, cy, b, size){
   }else{
     c.beginPath();
     c.moveTo(cx, cy-size*1.15);
-    c.lineTo(cx+size, cy*1 + size*0.8);
+    c.lineTo(cx+size, cy+size*0.8);
     c.lineTo(cx-size, cy+size*0.8);
-    c.closePath();
-    c.fill();
+    c.closePath(); c.fill();
   }
 }
 
 /* =====================================================
-   文字绘制（供渲染和导出使用）
+   文字绘制
    ===================================================== */
 function drawTexts(c, cell, ox, oy, textSizePx){
   if(!texts.length) return;
@@ -399,7 +417,6 @@ function drawTexts(c, cell, ox, oy, textSizePx){
   for(const t of texts){
     const cx = ox + (t.x+0.5)*cell;
     const cy = oy + (t.y+0.5)*cell;
-    // 深色底加白描边，浅色底加黑描边，增强可读性
     c.lineWidth = Math.max(2, textSizePx*0.18);
     c.strokeStyle = 'rgba(0,0,0,0.55)';
     c.strokeText(t.text, cx, cy);
@@ -421,12 +438,10 @@ function render(){
 
   ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.clearRect(0,0,cssW,cssH);
-
   ctx.fillStyle = '#12100e';
   ctx.fillRect(0,0,cssW,cssH);
 
   const mapW = W*scale, mapH = H*scale;
-
   ctx.fillStyle = '#1d1915';
   ctx.fillRect(offX, offY, mapW, mapH);
 
@@ -464,17 +479,18 @@ function render(){
     ctx.stroke();
   }
 
+  // 大粗线每 9 格
   if(scale >= 2){
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,255,0.26)';
     ctx.lineWidth = 1;
-    const sx = Math.ceil(gx0/10)*10;
-    const sy = Math.ceil(gy0/10)*10;
-    for(let x=sx;x<=gx1;x+=10){
+    const sx = Math.ceil(gx0/9)*9;
+    const sy = Math.ceil(gy0/9)*9;
+    for(let x=sx;x<=gx1;x+=9){
       const px = Math.round(offX + x*scale) + 0.5;
       ctx.moveTo(px, offY); ctx.lineTo(px, offY+mapH);
     }
-    for(let y=sy;y<=gy1;y+=10){
+    for(let y=sy;y<=gy1;y+=9){
       const py = Math.round(offY + y*scale) + 0.5;
       ctx.moveTo(offX, py); ctx.lineTo(offX+mapW, py);
     }
@@ -486,15 +502,15 @@ function render(){
   ctx.lineWidth = 2;
   ctx.strokeRect(offX-1, offY-1, mapW+2, mapH+2);
 
-  /* ============ 点位与作用半径 ============ */
+  /* ============ 点位与半径（统一用 p.x*scale） ============ */
   const iconS = clamp(scale*0.36, 4, 9);
 
   if(points.length){
     ctx.lineWidth = 2;
     for(const p of points){
       const b = BUILDINGS[p.t];
-      const cx = offX + (p.x+0.5)*scale;
-      const cy = offY + (p.y+0.5)*scale;
+      const cx = offX + p.x*scale;
+      const cy = offY + p.y*scale;
       const r  = b.radius*scale;
       if(r < 2.5) continue;
       ctx.beginPath();
@@ -504,17 +520,17 @@ function render(){
     }
     for(const p of points){
       const b = BUILDINGS[p.t];
-      const cx = offX + (p.x+0.5)*scale;
-      const cy = offY + (p.y+0.5)*scale;
+      const cx = offX + p.x*scale;
+      const cy = offY + p.y*scale;
       drawIcon(ctx, cx, cy, b, iconS);
     }
   }
 
-  /* ============ 文字标注 ============ */
+  /* ============ 文字 ============ */
   const textPx = clamp(scale * 0.85 * textScale, 4, 60);
   drawTexts(ctx, scale, offX, offY, textPx);
 
-  /* ============ 悬停效果 ============ */
+  /* ============ 悬停 ============ */
   if(!panning && hoverX>=0 && hoverX<W && hoverY>=0 && hoverY<H){
 
     if(tool === 'brush' && scale >= 4){
@@ -527,9 +543,15 @@ function render(){
     }
 
     if(tool === 'place'){
-      const b  = BUILDINGS[curB];
-      const cx = offX + (hoverX+0.5)*scale;
-      const cy = offY + (hoverY+0.5)*scale;
+      const b = BUILDINGS[curB];
+      let cx, cy;
+      if(alignMode === 'cross'){
+        cx = offX + hoverCX*scale;
+        cy = offY + hoverCY*scale;
+      }else{
+        cx = offX + (hoverX+0.5)*scale;
+        cy = offY + (hoverY+0.5)*scale;
+      }
 
       ctx.save();
       ctx.setLineDash([6,5]);
@@ -615,8 +637,7 @@ function fitView(){
   scale = clamp(Math.min((cssW-pad*2)/W, (cssH-pad*2)/H), MIN_SCALE, MAX_SCALE);
   offX = (cssW - W*scale)/2;
   offY = (cssH - H*scale)/2;
-  updateInfo();
-  scheduleRender();
+  updateInfo(); scheduleRender();
 }
 
 function initView(){
@@ -626,8 +647,7 @@ function initView(){
   offX = (cssW - W*scale)/2;
   offY = (cssH - H*scale)/2;
   clampView();
-  updateInfo();
-  scheduleRender();
+  updateInfo(); scheduleRender();
 }
 
 function zoomAt(mx,my,ns){
@@ -636,9 +656,7 @@ function zoomAt(mx,my,ns){
   offX = mx - (mx-offX)*(ns/scale);
   offY = my - (my-offY)*(ns/scale);
   scale = ns;
-  clampView();
-  updateInfo();
-  scheduleRender();
+  clampView(); updateInfo(); scheduleRender();
 }
 
 function updateInfo(){
@@ -662,13 +680,19 @@ function toGrid(px,py){
     y: Math.floor((py-offY)/scale)
   };
 }
+function toCross(px,py){
+  return {
+    x: Math.round((px-offX)/scale),
+    y: Math.round((py-offY)/scale)
+  };
+}
 
 function hitPoint(px, py){
   const hitR = clamp(scale*0.6, 10, 16);
   for(let i=points.length-1;i>=0;i--){
     const p  = points[i];
-    const cx = offX + (p.x+0.5)*scale;
-    const cy = offY + (p.y+0.5)*scale;
+    const cx = offX + p.x*scale;
+    const cy = offY + p.y*scale;
     if(Math.hypot(px-cx, py-cy) <= hitR) return i;
   }
   return -1;
@@ -698,23 +722,20 @@ function openTextEditor(gx, gy){
   textInput.value = old;
 
   editingText = { x:gx, y:gy, isNew: idx < 0 };
-
   setTimeout(()=>{ textInput.focus(); textInput.select(); }, 0);
 }
 
 function commitTextEditor(){
   if(!editingText) return;
   const val = textInput.value.trim();
-  const {x, y, isNew} = editingText;
+  const {x, y} = editingText;
 
   textInput.style.display = 'none';
   textInput.blur();
   editingText = null;
 
   const idx = findTextAt(x, y);
-
   if(!val){
-    // 空内容 → 删除
     if(idx >= 0){
       pushHistory();
       texts.splice(idx, 1);
@@ -722,9 +743,8 @@ function commitTextEditor(){
     }
     return;
   }
-
   if(idx >= 0){
-    if(texts[idx].text === val){ return; } // 没变
+    if(texts[idx].text === val){ return; }
     pushHistory();
     texts[idx].text = val;
   }else{
@@ -766,8 +786,7 @@ function onPanMove(e){
   e.preventDefault();
   offX = panStart.ox + (e.clientX - panStart.x);
   offY = panStart.oy + (e.clientY - panStart.y);
-  clampView();
-  scheduleRender();
+  clampView(); scheduleRender();
 }
 function onPanEnd(){
   if(!panning) return;
@@ -862,16 +881,14 @@ function setSize(nw,nh){
   dc.width = W; dc.height = H;
   imgData = dctx.createImageData(W,H);
 
-  // 移除越界点位和文字
-  points = points.filter(p => p.x < W && p.y < H);
-  texts  = texts.filter(t => t.x < W && t.y < H);
+  points = points.filter(p => p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H);
+  texts  = texts.filter(t => t.x >= 0 && t.x < W && t.y >= 0 && t.y < H);
 
   rebuild();
   countPainted();
   history.length = 0; future.length = 0;
   updateHistoryUI();
-  fitView();
-  updateInfo();
+  fitView(); updateInfo();
 }
 
 /* =====================================================
@@ -888,8 +905,7 @@ function resize(){
   canvas.height = Math.round(cssH*dpr);
   canvas.style.width  = cssW+'px';
   canvas.style.height = cssH+'px';
-  clampView();
-  scheduleRender();
+  clampView(); scheduleRender();
 }
 
 /* =====================================================
@@ -897,7 +913,7 @@ function resize(){
    ===================================================== */
 function cursorForTool(){
   if(tool === 'drag')  return 'grab';
-  if(tool === 'place') return 'copy';
+  if(tool === 'place') return 'crosshair';
   if(tool === 'text')  return 'text';
   return 'crosshair';
 }
@@ -917,7 +933,7 @@ canvas.addEventListener('pointerdown', e=>{
 
   const p = getPos(e);
 
-  /* ---------- 点位工具 ---------- */
+  /* ---------- 点位 ---------- */
   if(tool === 'place'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
 
@@ -939,23 +955,33 @@ canvas.addEventListener('pointerdown', e=>{
         updateInfo(); scheduleRender();
         return;
       }
-      const g = toGrid(p.x, p.y);
-      if(g.x>=0 && g.y>=0 && g.x<W && g.y<H){
-        pushHistory();
-        points.push({ x:g.x, y:g.y, t:curB });
-        updateInfo(); scheduleRender();
+
+      // ★ 根据对齐模式计算放置坐标
+      if(alignMode === 'cross'){
+        const c = toCross(p.x, p.y);
+        if(c.x >= 0 && c.x <= W && c.y >= 0 && c.y <= H){
+          pushHistory();
+          points.push({ x:c.x, y:c.y, t:curB });
+          updateInfo(); scheduleRender();
+        }
+      }else{
+        const g = toGrid(p.x, p.y);
+        if(g.x >= 0 && g.y >= 0 && g.x < W && g.y < H){
+          pushHistory();
+          points.push({ x:g.x+0.5, y:g.y+0.5, t:curB });
+          updateInfo(); scheduleRender();
+        }
       }
       return;
     }
     return;
   }
 
-  /* ---------- 文字工具 ---------- */
+  /* ---------- 文字 ---------- */
   if(tool === 'text'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
     if(e.button !== 0) return;
 
-    // 提交正在编辑的内容
     if(editingText) commitTextEditor();
 
     const g = toGrid(p.x, p.y);
@@ -965,10 +991,9 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
-  /* ---------- 画笔工具 ---------- */
+  /* ---------- 画笔 ---------- */
   if(e.button !== 0) return;
 
-  // 切换工具时，若还有未提交的文字，先提交
   if(editingText) commitTextEditor();
 
   const g = toGrid(p.x, p.y);
@@ -978,8 +1003,7 @@ canvas.addEventListener('pointerdown', e=>{
   drawing = true;
   lastGX = g.x; lastGY = g.y;
   paintCell(g.x, g.y);
-  updateInfo();
-  scheduleRender();
+  updateInfo(); scheduleRender();
 });
 
 canvas.addEventListener('pointermove', e=>{
@@ -988,23 +1012,33 @@ canvas.addEventListener('pointermove', e=>{
 
   const p = getPos(e);
   const g = toGrid(p.x, p.y);
+  const c = toCross(p.x, p.y);
 
   if(drawing){
     if(lastGX===null) paintCell(g.x, g.y);
     else paintLine(lastGX, lastGY, g.x, g.y);
     lastGX = g.x; lastGY = g.y;
-    updateInfo();
-    scheduleRender();
+    updateInfo(); scheduleRender();
   }else{
-    if(g.x!==hoverX || g.y!==hoverY){
+    if(g.x!==hoverX || g.y!==hoverY || c.x!==hoverCX || c.y!==hoverCY){
       hoverX = g.x; hoverY = g.y;
+      hoverCX = c.x; hoverCY = c.y;
       scheduleRender();
     }
   }
 
   const el = document.getElementById('posInfo');
-  if(g.x>=0 && g.y>=0 && g.x<W && g.y<H) el.textContent = `(${g.x}, ${g.y})`;
-  else el.textContent = '—';
+  if(tool === 'place'){
+    if(alignMode === 'cross'){
+      el.textContent = `交叉点 (${c.x}, ${c.y})`;
+    }else{
+      if(g.x>=0 && g.y>=0 && g.x<W && g.y<H) el.textContent = `格子中心 (${g.x+0.5}, ${g.y+0.5})`;
+      else el.textContent = '—';
+    }
+  }else{
+    if(g.x>=0 && g.y>=0 && g.x<W && g.y<H) el.textContent = `(${g.x}, ${g.y})`;
+    else el.textContent = '—';
+  }
 });
 
 function endPointer(){
@@ -1026,6 +1060,7 @@ canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('pointerleave', ()=>{
   if(!drawing && !panning){
     hoverX = hoverY = -1;
+    hoverCX = hoverCY = -1;
     scheduleRender();
     document.getElementById('posInfo').textContent = '—';
   }
@@ -1042,8 +1077,7 @@ canvas.addEventListener('wheel', e=>{
    键盘
    ===================================================== */
 window.addEventListener('keydown', e=>{
-  if(editingText) return;    // 编辑文字时不响应快捷键
-
+  if(editingText) return;
   const tag = (e.target.tagName||'').toUpperCase();
   if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
 
@@ -1112,7 +1146,30 @@ function setCurrent(i){
 }
 
 /* =====================================================
-   文字颜色选择器
+   ★ 对齐模式切换
+   ===================================================== */
+const alignCenterEl = document.getElementById('alignCenter');
+const alignCrossEl  = document.getElementById('alignCross');
+
+function setAlign(m){
+  alignMode = m;
+  alignCenterEl.classList.toggle('on', m === 'center');
+  alignCrossEl.classList.toggle('on',  m === 'cross');
+  hoverX = hoverY = -1;
+  hoverCX = hoverCY = -1;
+  // 更新提示条
+  if(tool === 'place'){
+    document.getElementById('hintBar').textContent = m === 'cross'
+      ? '点位：吸附到最近的交叉点 · 点击已有点位或右键删除'
+      : '点位：放在格子正中心 · 点击已有点位或右键删除';
+  }
+  scheduleRender();
+}
+alignCenterEl.addEventListener('click', ()=>setAlign('center'));
+alignCrossEl .addEventListener('click', ()=>setAlign('cross'));
+
+/* =====================================================
+   文字颜色 / 大小
    ===================================================== */
 const textColorsEl = document.getElementById('textColors');
 TEXT_COLORS.forEach((hex, i)=>{
@@ -1131,7 +1188,6 @@ TEXT_COLORS.forEach((hex, i)=>{
   textColorsEl.appendChild(el);
 });
 
-/* 文字大小滑块 */
 const textSizeEl = document.getElementById('textSize');
 const textSizeValEl = document.getElementById('textSizeVal');
 textSizeEl.addEventListener('input', ()=>{
@@ -1140,7 +1196,6 @@ textSizeEl.addEventListener('input', ()=>{
   scheduleRender();
 });
 
-/* 清空文字 */
 document.getElementById('clearTexts').addEventListener('click', ()=>{
   if(!texts.length){ toast('还没有文字'); return; }
   if(!confirm('确定清空所有文字标注？')) return;
@@ -1192,7 +1247,6 @@ document.getElementById('clearPts').addEventListener('click', ()=>{
    工具切换
    ===================================================== */
 function setTool(t){
-  // 切换工具前，先提交正在编辑的文字
   if(editingText) commitTextEditor();
 
   tool = t;
@@ -1201,10 +1255,13 @@ function setTool(t){
   });
   canvas.style.cursor = cursorForTool();
   hoverX = hoverY = -1;
+  hoverCX = hoverCY = -1;
 
   const hint = document.getElementById('hintBar');
   if(t === 'brush')      hint.textContent = '画笔：左键涂色 · 滚轮缩放';
-  else if(t === 'place') hint.textContent = '点位：左键放置 / 点击已有点位删除 / 右键删除';
+  else if(t === 'place') hint.textContent = alignMode === 'cross'
+                          ? '点位：吸附到最近的交叉点 · 点击已有点位或右键删除'
+                          : '点位：放在格子正中心 · 点击已有点位或右键删除';
   else if(t === 'text')  hint.textContent = '文字：左键点击格子输入 / 再次点击编辑 / 清空即删除';
   else                   hint.textContent = '拖拽：按住任意鼠标键移动画布 · 滚轮缩放';
 
@@ -1230,8 +1287,7 @@ document.getElementById('clear').addEventListener('click', ()=>{
   if(!confirm('确定清空全部地皮、点位和文字？')) return;
   pushHistory();
   data = new Uint8Array(W*H);
-  points = [];
-  texts = [];
+  points = []; texts = [];
   paintedCount = 0;
   rebuild(); updateInfo(); scheduleRender();
   toast('已清空');
@@ -1252,7 +1308,7 @@ document.getElementById('sizeSel').addEventListener('change', e=>{
    导出 PNG
    ===================================================== */
 document.getElementById('export').addEventListener('click', ()=>{
-  const cell = 12;
+  const cell = 24;
   const c = document.createElement('canvas');
   c.width  = W*cell;
   c.height = H*cell;
@@ -1272,16 +1328,16 @@ document.getElementById('export').addEventListener('click', ()=>{
 
   g.strokeStyle = 'rgba(255,255,255,0.28)';
   g.beginPath();
-  for(let x=10;x<W;x+=10){ g.moveTo(x*cell+0.5,0); g.lineTo(x*cell+0.5,c.height); }
-  for(let y=10;y<H;y+=10){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
+  for(let x=9;x<W;x+=9){ g.moveTo(x*cell+0.5,0); g.lineTo(x*cell+0.5,c.height); }
+  for(let y=9;y<H;y+=9){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
   g.stroke();
 
-  const iconS = 7;
-  g.lineWidth = 2;
+  const iconS = 14;
+  g.lineWidth = 3;
   for(const p of points){
     const b = BUILDINGS[p.t];
-    const cx = (p.x+0.5)*cell;
-    const cy = (p.y+0.5)*cell;
+    const cx = p.x*cell;
+    const cy = p.y*cell;
     g.beginPath();
     g.arc(cx, cy, b.radius*cell, 0, Math.PI*2);
     g.strokeStyle = hexA(b.color, 0.78);
@@ -1289,11 +1345,10 @@ document.getElementById('export').addEventListener('click', ()=>{
   }
   for(const p of points){
     const b = BUILDINGS[p.t];
-    drawIcon(g, (p.x+0.5)*cell, (p.y+0.5)*cell, b, iconS);
+    drawIcon(g, p.x*cell, p.y*cell, b, iconS);
   }
 
-  // 文字：导出时按 12px/格 计算，保持视觉一致
-  const expTextPx = clamp(cell * 0.85 * textScale, 4, 60);
+  const expTextPx = clamp(cell * 0.85 * textScale, 4, 120);
   drawTexts(g, cell, 0, 0, expTextPx);
 
   const a = document.createElement('a');
@@ -1306,7 +1361,7 @@ document.getElementById('export').addEventListener('click', ()=>{
 /* =====================================================
    保存 / 读取
    ===================================================== */
-const STORE_KEY = 'turf_planner_v7';
+const STORE_KEY = 'turf_planner_v9';
 
 function u8ToB64(u8){
   let s='';
@@ -1326,7 +1381,7 @@ document.getElementById('save').addEventListener('click', ()=>{
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
       w:W, h:H, d:u8ToB64(data), pts:points, txs:texts,
-      tc:textColor, ts:textScale, v:7
+      tc:textColor, ts:textScale, am:alignMode, v:9
     }));
     toast('已保存到浏览器');
   }catch(err){
@@ -1355,13 +1410,15 @@ document.getElementById('load').addEventListener('click', ()=>{
 
     if(typeof o.tc === 'string') textColor = o.tc;
     if(typeof o.ts === 'number') textScale = o.ts;
+    if(o.am === 'cross' || o.am === 'center') alignMode = o.am;
 
-    // 同步 UI
     [...textColorsEl.children].forEach(c=>{
       c.classList.toggle('on', c.dataset.c === textColor);
     });
     textSizeEl.value = String(textScale);
     textSizeValEl.textContent = textScale.toFixed(1);
+    alignCenterEl.classList.toggle('on', alignMode === 'center');
+    alignCrossEl .classList.toggle('on', alignMode === 'cross');
 
     countPainted();
     history.length = 0; future.length = 0;
