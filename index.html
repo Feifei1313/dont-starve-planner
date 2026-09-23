@@ -82,6 +82,27 @@
   .bname{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .brad{color:#8b8071;font-size:11px;font-variant-numeric:tabular-nums}
 
+  /* 文字样式 */
+  #textColors{
+    display:grid;grid-template-columns:repeat(6,1fr);gap:4px;
+    margin-bottom:8px;
+  }
+  .tc{
+    aspect-ratio:1;border-radius:4px;cursor:pointer;
+    border:2px solid transparent;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.15);
+    transition:transform .1s;
+  }
+  .tc:hover{transform:scale(1.15)}
+  .tc.on{border-color:#fff;box-shadow:0 0 0 2px #d9a441;}
+  .slider-row{
+    display:flex;align-items:center;gap:8px;font-size:11.5px;color:#8b8071;
+  }
+  .slider-row input[type=range]{
+    flex:1;accent-color:#d9a441;cursor:pointer;
+  }
+  .slider-val{width:32px;text-align:right;color:#d8cfc0;font-variant-numeric:tabular-nums;}
+
   .side-btn{
     width:100%;margin-top:8px;background:#2a231d;color:#d8cfc0;
     border:1px solid #3a322a;border-radius:6px;padding:7px;
@@ -111,6 +132,17 @@
     pointer-events:none;border:1px solid #2a241e;
   }
 
+  /* 输入框浮层 */
+  #textInput{
+    position:absolute;
+    display:none;
+    background:#2a231d;border:2px solid #d9a441;border-radius:6px;
+    padding:4px 6px;font-size:13px;color:#fff;font-family:inherit;
+    outline:none;z-index:10;
+    box-shadow:0 4px 12px rgba(0,0,0,.6);
+    min-width:60px;
+  }
+
   /* ---------- 底栏 ---------- */
   footer{
     flex:none;height:28px;display:flex;align-items:center;gap:22px;
@@ -135,6 +167,7 @@
   <button data-tool="brush" class="active" title="画笔 (B)">🖌 画笔</button>
   <button data-tool="drag" title="拖拽画布 (D)">✋ 拖拽</button>
   <button data-tool="place" title="放置点位 (P)">📍 点位</button>
+  <button data-tool="text" title="文字标注 (T)">📝 文字</button>
   <div class="sep"></div>
   <button id="undo" title="撤销 Ctrl+Z">↶ 撤销</button>
   <button id="redo" title="重做 Ctrl+Y">↷ 重做</button>
@@ -158,8 +191,20 @@
     <div id="builds"></div>
     <button class="side-btn" id="clearPts">清空所有点位</button>
 
+    <div class="sec">文字标注样式</div>
+    <div id="textColors"></div>
+    <div class="slider-row">
+      <span>大小</span>
+      <input type="range" id="textSize" min="0.5" max="2.5" step="0.1" value="1">
+      <span class="slider-val" id="textSizeVal">1.0</span>
+    </div>
+    <button class="side-btn" id="clearTexts">清空所有文字</button>
+
     <div class="sec">地图尺寸</div>
     <select id="sizeSel">
+      <option value="30">30 × 30</option>
+      <option value="50">50 × 50</option>
+      <option value="70">70 × 70</option>
       <option value="100" selected>100 × 100</option>
       <option value="120">120 × 120</option>
       <option value="150">150 × 150</option>
@@ -170,7 +215,8 @@
 
   <main id="stage">
     <canvas id="board"></canvas>
-    <div class="hint" id="hintBar">画笔：左键涂色 · 点位：左键放置 / 右键删除 · 拖拽：按住任意键移动</div>
+    <input id="textInput" type="text" maxlength="20" autocomplete="off">
+    <div class="hint" id="hintBar">画笔：左键涂色 · 点位：左键放置 / 右键删除 · 文字：左键编辑 · 拖拽：按住任意键移动</div>
   </main>
 </div>
 
@@ -180,6 +226,7 @@
   <span>尺寸 <b id="sizeInfo">100 × 100</b></span>
   <span>已规划 <b id="statInfo">0</b> 格</span>
   <span>点位 <b id="ptInfo">0</b> 个</span>
+  <span>文字 <b id="txInfo">0</b> 处</span>
 </footer>
 
 <div id="toast"></div>
@@ -214,17 +261,21 @@ function hexA(hex, a){
 }
 
 /* =====================================================
-   ★ 建筑点位定义（正确换算：游戏数值 ÷ 4 = 地皮半径）
-   游戏1格地皮 = 4个游戏单位（墙壁）
+   文字颜色选项
+   ===================================================== */
+const TEXT_COLORS = [
+  '#000000','#ffffff','#e0402c','#d9a441','#3a9c3a',
+  '#2f6fd9','#9c3b9c','#ff8c42','#5a3a2a','#7c7c74',
+  '#c2555a','#3fa89a'
+];
+
+/* =====================================================
+   建筑点位定义
    ===================================================== */
 const BUILDINGS = [
-  // 龙鳞火炉：9.5 / 4 = 2.375
   { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'circle',   gameUnit:9.5  },
-  // 冰眼结晶器：35 / 4 = 8.75
   { name:'冰眼结晶器', radius:8.75,  color:'#2f6fd9', shape:'circle',   gameUnit:35   },
-  // 雪球发射器：15 / 4 = 3.75
   { name:'雪球发射器', radius:3.75,  color:'#2f6fd9', shape:'x',        gameUnit:15   },
-  // 避雷针：40 / 4 = 10
   { name:'避雷针',     radius:10,    color:'#3a9c3a', shape:'triangle', gameUnit:40   }
 ];
 
@@ -232,13 +283,18 @@ const BUILDINGS = [
    状态
    ===================================================== */
 let W = 100, H = 100;
-let data = new Uint8Array(W*H);          // 地皮
-let points = [];                          // 点位 [{x,y,t}]
+let data  = new Uint8Array(W*H);     // 地皮
+let points = [];                      // 点位 [{x,y,t}]
+let texts  = [];                      // 文字 [{x,y,text}]
 let paintedCount = 0;
+
+let textColor = '#000000';
+let textScale = 1.0;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const stage = document.getElementById('stage');
+const textInput = document.getElementById('textInput');
 
 const dc = document.createElement('canvas');
 dc.width = W; dc.height = H;
@@ -251,7 +307,7 @@ let scale = 12;
 let offX = 0, offY = 0;
 const MIN_SCALE = 1.5, MAX_SCALE = 60;
 
-let tool = 'brush';        // 'brush' | 'drag' | 'place'
+let tool = 'brush';        // 'brush' | 'drag' | 'place' | 'text'
 let cur = 1;               // 当前颜色索引
 let curB = 0;              // 当前建筑索引
 
@@ -262,6 +318,7 @@ let panStart = {x:0, y:0, ox:0, oy:0};
 let hoverX = -1, hoverY = -1;
 let spaceDown = false;
 
+let editingText = null;    // {x,y,isNew} 正在编辑的格子
 let strokeSnap = null, strokeDirty = false;
 let history = [], future = [];
 const MAX_HISTORY = 60;
@@ -319,13 +376,34 @@ function drawIcon(c, cx, cy, b, size){
     c.moveTo(cx-size, cy-size); c.lineTo(cx+size, cy+size);
     c.moveTo(cx+size, cy-size); c.lineTo(cx-size, cy+size);
     c.stroke();
-  }else{ // triangle
+  }else{
     c.beginPath();
     c.moveTo(cx, cy-size*1.15);
-    c.lineTo(cx+size, cy+size*0.8);
+    c.lineTo(cx+size, cy*1 + size*0.8);
     c.lineTo(cx-size, cy+size*0.8);
     c.closePath();
     c.fill();
+  }
+}
+
+/* =====================================================
+   文字绘制（供渲染和导出使用）
+   ===================================================== */
+function drawTexts(c, cell, ox, oy, textSizePx){
+  if(!texts.length) return;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillStyle = textColor;
+  c.font = `bold ${textSizePx}px system-ui,"Microsoft YaHei",sans-serif`;
+
+  for(const t of texts){
+    const cx = ox + (t.x+0.5)*cell;
+    const cy = oy + (t.y+0.5)*cell;
+    // 深色底加白描边，浅色底加黑描边，增强可读性
+    c.lineWidth = Math.max(2, textSizePx*0.18);
+    c.strokeStyle = 'rgba(0,0,0,0.55)';
+    c.strokeText(t.text, cx, cy);
+    c.fillText(t.text, cx, cy);
   }
 }
 
@@ -411,7 +489,6 @@ function render(){
   /* ============ 点位与作用半径 ============ */
   const iconS = clamp(scale*0.36, 4, 9);
 
-  // 半径圆
   if(points.length){
     ctx.lineWidth = 2;
     for(const p of points){
@@ -425,7 +502,6 @@ function render(){
       ctx.strokeStyle = hexA(b.color, 0.78);
       ctx.stroke();
     }
-    // 图标
     for(const p of points){
       const b = BUILDINGS[p.t];
       const cx = offX + (p.x+0.5)*scale;
@@ -433,6 +509,10 @@ function render(){
       drawIcon(ctx, cx, cy, b, iconS);
     }
   }
+
+  /* ============ 文字标注 ============ */
+  const textPx = clamp(scale * 0.85 * textScale, 4, 60);
+  drawTexts(ctx, scale, offX, offY, textPx);
 
   /* ============ 悬停效果 ============ */
   if(!panning && hoverX>=0 && hoverX<W && hoverY>=0 && hoverY<H){
@@ -464,9 +544,17 @@ function render(){
       drawIcon(ctx, cx, cy, b, iconS);
       ctx.globalAlpha = 1;
     }
+
+    if(tool === 'text'){
+      const px = offX + hoverX*scale;
+      const py = offY + hoverY*scale;
+      ctx.strokeStyle = 'rgba(217,164,65,0.95)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(Math.round(px)-1, Math.round(py)-1,
+                     Math.round(scale)+2, Math.round(scale)+2);
+    }
   }
 
-  /* ============ 图例 ============ */
   drawLegend();
 }
 
@@ -558,6 +646,7 @@ function updateInfo(){
   document.getElementById('sizeInfo').textContent = W+' × '+H;
   document.getElementById('statInfo').textContent = paintedCount;
   document.getElementById('ptInfo').textContent = points.length;
+  document.getElementById('txInfo').textContent = texts.length;
 }
 
 /* =====================================================
@@ -584,6 +673,80 @@ function hitPoint(px, py){
   }
   return -1;
 }
+
+function findTextAt(gx, gy){
+  for(let i=texts.length-1;i>=0;i--){
+    if(texts[i].x === gx && texts[i].y === gy) return i;
+  }
+  return -1;
+}
+
+/* =====================================================
+   文字输入框
+   ===================================================== */
+function openTextEditor(gx, gy){
+  const idx = findTextAt(gx, gy);
+  const old = idx >= 0 ? texts[idx].text : '';
+
+  const px = offX + gx*scale;
+  const py = offY + gy*scale;
+
+  textInput.style.display = 'block';
+  textInput.style.left = px + 'px';
+  textInput.style.top  = py + 'px';
+  textInput.style.width = Math.max(scale, 60) + 'px';
+  textInput.value = old;
+
+  editingText = { x:gx, y:gy, isNew: idx < 0 };
+
+  setTimeout(()=>{ textInput.focus(); textInput.select(); }, 0);
+}
+
+function commitTextEditor(){
+  if(!editingText) return;
+  const val = textInput.value.trim();
+  const {x, y, isNew} = editingText;
+
+  textInput.style.display = 'none';
+  textInput.blur();
+  editingText = null;
+
+  const idx = findTextAt(x, y);
+
+  if(!val){
+    // 空内容 → 删除
+    if(idx >= 0){
+      pushHistory();
+      texts.splice(idx, 1);
+      updateInfo(); scheduleRender();
+    }
+    return;
+  }
+
+  if(idx >= 0){
+    if(texts[idx].text === val){ return; } // 没变
+    pushHistory();
+    texts[idx].text = val;
+  }else{
+    pushHistory();
+    texts.push({ x, y, text: val });
+  }
+  updateInfo(); scheduleRender();
+}
+
+function cancelTextEditor(){
+  textInput.style.display = 'none';
+  editingText = null;
+}
+
+textInput.addEventListener('keydown', e=>{
+  e.stopPropagation();
+  if(e.key === 'Enter'){ commitTextEditor(); }
+  else if(e.key === 'Escape'){ cancelTextEditor(); }
+});
+textInput.addEventListener('blur', ()=>{
+  if(editingText) commitTextEditor();
+});
 
 /* =====================================================
    拖拽
@@ -649,11 +812,16 @@ function paintLine(x0,y0,x1,y1){
    历史
    ===================================================== */
 function snap(){
-  return { d: data.slice(), p: points.map(o=>({...o})) };
+  return {
+    d: data.slice(),
+    p: points.map(o=>({...o})),
+    t: texts.map(o=>({...o}))
+  };
 }
 function applySnap(s){
   data = s.d.slice();
   points = s.p.map(o=>({...o}));
+  texts = (s.t || []).map(o=>({...o}));
   rebuild();
   countPainted();
 }
@@ -693,6 +861,11 @@ function setSize(nw,nh){
   W = nw; H = nh; data = nd;
   dc.width = W; dc.height = H;
   imgData = dctx.createImageData(W,H);
+
+  // 移除越界点位和文字
+  points = points.filter(p => p.x < W && p.y < H);
+  texts  = texts.filter(t => t.x < W && t.y < H);
+
   rebuild();
   countPainted();
   history.length = 0; future.length = 0;
@@ -725,6 +898,7 @@ function resize(){
 function cursorForTool(){
   if(tool === 'drag')  return 'grab';
   if(tool === 'place') return 'copy';
+  if(tool === 'text')  return 'text';
   return 'crosshair';
 }
 
@@ -743,6 +917,7 @@ canvas.addEventListener('pointerdown', e=>{
 
   const p = getPos(e);
 
+  /* ---------- 点位工具 ---------- */
   if(tool === 'place'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
 
@@ -775,7 +950,26 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
+  /* ---------- 文字工具 ---------- */
+  if(tool === 'text'){
+    if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
+    if(e.button !== 0) return;
+
+    // 提交正在编辑的内容
+    if(editingText) commitTextEditor();
+
+    const g = toGrid(p.x, p.y);
+    if(g.x>=0 && g.y>=0 && g.x<W && g.y<H){
+      openTextEditor(g.x, g.y);
+    }
+    return;
+  }
+
+  /* ---------- 画笔工具 ---------- */
   if(e.button !== 0) return;
+
+  // 切换工具时，若还有未提交的文字，先提交
+  if(editingText) commitTextEditor();
 
   const g = toGrid(p.x, p.y);
   canvas.setPointerCapture(e.pointerId);
@@ -848,6 +1042,8 @@ canvas.addEventListener('wheel', e=>{
    键盘
    ===================================================== */
 window.addEventListener('keydown', e=>{
+  if(editingText) return;    // 编辑文字时不响应快捷键
+
   const tag = (e.target.tagName||'').toUpperCase();
   if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
 
@@ -873,6 +1069,7 @@ window.addEventListener('keydown', e=>{
     case 'b': setTool('brush'); break;
     case 'd': setTool('drag');  break;
     case 'p': setTool('place'); break;
+    case 't': setTool('text');  break;
     case '0': fitView(); break;
     case '+': case '=': zoomAt(cssW/2, cssH/2, scale*1.25); break;
     case '-': case '_': zoomAt(cssW/2, cssH/2, scale/1.25); break;
@@ -913,6 +1110,45 @@ function setCurrent(i){
     el.classList.toggle('on', Number(el.dataset.i)===i);
   });
 }
+
+/* =====================================================
+   文字颜色选择器
+   ===================================================== */
+const textColorsEl = document.getElementById('textColors');
+TEXT_COLORS.forEach((hex, i)=>{
+  const el = document.createElement('div');
+  el.className = 'tc' + (i===0 ? ' on' : '');
+  el.style.background = hex;
+  el.dataset.c = hex;
+  el.title = hex;
+  el.addEventListener('click', ()=>{
+    textColor = hex;
+    [...textColorsEl.children].forEach(c=>{
+      c.classList.toggle('on', c.dataset.c === hex);
+    });
+    scheduleRender();
+  });
+  textColorsEl.appendChild(el);
+});
+
+/* 文字大小滑块 */
+const textSizeEl = document.getElementById('textSize');
+const textSizeValEl = document.getElementById('textSizeVal');
+textSizeEl.addEventListener('input', ()=>{
+  textScale = Number(textSizeEl.value);
+  textSizeValEl.textContent = textScale.toFixed(1);
+  scheduleRender();
+});
+
+/* 清空文字 */
+document.getElementById('clearTexts').addEventListener('click', ()=>{
+  if(!texts.length){ toast('还没有文字'); return; }
+  if(!confirm('确定清空所有文字标注？')) return;
+  pushHistory();
+  texts = [];
+  updateInfo(); scheduleRender();
+  toast('文字已清空');
+});
 
 /* =====================================================
    建筑列表
@@ -956,6 +1192,9 @@ document.getElementById('clearPts').addEventListener('click', ()=>{
    工具切换
    ===================================================== */
 function setTool(t){
+  // 切换工具前，先提交正在编辑的文字
+  if(editingText) commitTextEditor();
+
   tool = t;
   document.querySelectorAll('header button[data-tool]').forEach(b=>{
     b.classList.toggle('active', b.dataset.tool===t);
@@ -964,9 +1203,10 @@ function setTool(t){
   hoverX = hoverY = -1;
 
   const hint = document.getElementById('hintBar');
-  if(t === 'brush') hint.textContent = '画笔：左键涂色 · 滚轮缩放';
-  else if(t === 'place') hint.textContent = '点位：左键放置 / 点击已有点位删除 / 右键删除 · 中键或空格+左键拖拽';
-  else hint.textContent = '拖拽：按住任意鼠标键移动画布 · 滚轮缩放';
+  if(t === 'brush')      hint.textContent = '画笔：左键涂色 · 滚轮缩放';
+  else if(t === 'place') hint.textContent = '点位：左键放置 / 点击已有点位删除 / 右键删除';
+  else if(t === 'text')  hint.textContent = '文字：左键点击格子输入 / 再次点击编辑 / 清空即删除';
+  else                   hint.textContent = '拖拽：按住任意鼠标键移动画布 · 滚轮缩放';
 
   scheduleRender();
 }
@@ -984,11 +1224,14 @@ document.getElementById('zi').addEventListener('click', ()=>zoomAt(cssW/2, cssH/
 document.getElementById('zo').addEventListener('click', ()=>zoomAt(cssW/2, cssH/2, scale/1.3));
 
 document.getElementById('clear').addEventListener('click', ()=>{
-  if(paintedCount===0 && points.length===0){ toast('已经是空的啦'); return; }
-  if(!confirm('确定清空全部地皮和点位？')) return;
+  if(paintedCount===0 && points.length===0 && texts.length===0){
+    toast('已经是空的啦'); return;
+  }
+  if(!confirm('确定清空全部地皮、点位和文字？')) return;
   pushHistory();
   data = new Uint8Array(W*H);
   points = [];
+  texts = [];
   paintedCount = 0;
   rebuild(); updateInfo(); scheduleRender();
   toast('已清空');
@@ -997,7 +1240,7 @@ document.getElementById('clear').addEventListener('click', ()=>{
 document.getElementById('sizeSel').addEventListener('change', e=>{
   const n = Number(e.target.value);
   if(n===W) return;
-  if((paintedCount>0 || points.length>0) &&
+  if((paintedCount>0 || points.length>0 || texts.length>0) &&
      !confirm(`切换到 ${n} × ${n} ？左上角已画的内容会保留`)){
     e.target.value = String(W);
     return;
@@ -1049,6 +1292,10 @@ document.getElementById('export').addEventListener('click', ()=>{
     drawIcon(g, (p.x+0.5)*cell, (p.y+0.5)*cell, b, iconS);
   }
 
+  // 文字：导出时按 12px/格 计算，保持视觉一致
+  const expTextPx = clamp(cell * 0.85 * textScale, 4, 60);
+  drawTexts(g, cell, 0, 0, expTextPx);
+
   const a = document.createElement('a');
   a.download = `地皮规划_${W}x${H}.png`;
   a.href = c.toDataURL('image/png');
@@ -1059,7 +1306,7 @@ document.getElementById('export').addEventListener('click', ()=>{
 /* =====================================================
    保存 / 读取
    ===================================================== */
-const STORE_KEY = 'turf_planner_v6';
+const STORE_KEY = 'turf_planner_v7';
 
 function u8ToB64(u8){
   let s='';
@@ -1078,7 +1325,8 @@ function b64ToU8(b64){
 document.getElementById('save').addEventListener('click', ()=>{
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
-      w:W, h:H, d:u8ToB64(data), pts:points, v:6
+      w:W, h:H, d:u8ToB64(data), pts:points, txs:texts,
+      tc:textColor, ts:textScale, v:7
     }));
     toast('已保存到浏览器');
   }catch(err){
@@ -1103,6 +1351,17 @@ document.getElementById('load').addEventListener('click', ()=>{
     }
     data = arr;
     points = Array.isArray(o.pts) ? o.pts.filter(p=>p && p.t>=0 && p.t<BUILDINGS.length) : [];
+    texts  = Array.isArray(o.txs) ? o.txs.filter(t=>t && typeof t.text === 'string') : [];
+
+    if(typeof o.tc === 'string') textColor = o.tc;
+    if(typeof o.ts === 'number') textScale = o.ts;
+
+    // 同步 UI
+    [...textColorsEl.children].forEach(c=>{
+      c.classList.toggle('on', c.dataset.c === textColor);
+    });
+    textSizeEl.value = String(textScale);
+    textSizeValEl.textContent = textScale.toFixed(1);
 
     countPainted();
     history.length = 0; future.length = 0;
