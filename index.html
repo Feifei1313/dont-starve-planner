@@ -283,11 +283,11 @@ const TEXT_COLORS = [
 ];
 
 const BUILDINGS = [
-  { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'circle',   gameUnit:9.5  },
+  { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'diamond',   gameUnit:9.5  },
   { name:'冰眼结晶器', radius:8.75,  color:'#2f6fd9', shape:'circle',   gameUnit:35   },
   { name:'雪球发射器', radius:3.75,  color:'#4db8e0', shape:'x',        gameUnit:15   },
   { name:'避雷针',     radius:10,    color:'#3a9c3a', shape:'triangle', gameUnit:40   },
-  { name:'蘑菇灯',     radius:2.875, color:'#c95ac9', shape:'circle',   gameUnit:11.5 },
+  { name:'蘑菇灯',     radius:2.875, color:'#c95ac9', shape:'square',   gameUnit:11.5 },
   { name:'菌伞灯',     radius:2.675, color:'#3fa89a', shape:'circle',   gameUnit:10.7 },
   { name:'疙瘩树',     radius:5.5,   color:'#8b5a2b', shape:'circle',   gameUnit:22   }
 ];
@@ -381,11 +381,30 @@ function drawIcon(c, cx, cy, b, size){
     c.moveTo(cx-size, cy-size); c.lineTo(cx+size, cy+size);
     c.moveTo(cx+size, cy-size); c.lineTo(cx-size, cy+size);
     c.stroke();
-  }else{
+  }else if(b.shape === 'triangle'){
     c.beginPath();
     c.moveTo(cx, cy-size*1.15);
     c.lineTo(cx+size, cy+size*0.8);
     c.lineTo(cx-size, cy+size*0.8);
+    c.closePath(); c.fill();
+  }else if(b.shape === 'square'){
+    c.fillRect(cx-size*0.85, cy-size*0.85, size*1.7, size*1.7);
+  }else if(b.shape === 'star'){
+    c.beginPath();
+    for(let i=0;i<10;i++){
+      const r = i%2===0 ? size*1.1 : size*0.45;
+      const a = -Math.PI/2 + i*Math.PI/5;
+      const px = cx + Math.cos(a)*r;
+      const py = cy + Math.sin(a)*r;
+      i===0 ? c.moveTo(px,py) : c.lineTo(px,py);
+    }
+    c.closePath(); c.fill();
+  }else if(b.shape === 'diamond'){
+    c.beginPath();
+    c.moveTo(cx, cy-size*1.1);
+    c.lineTo(cx+size, cy);
+    c.lineTo(cx, cy+size*1.1);
+    c.lineTo(cx-size, cy);
     c.closePath(); c.fill();
   }
 }
@@ -1213,7 +1232,7 @@ document.getElementById('clearTexts').addEventListener('click', ()=>{
 });
 
 const buildsEl = document.getElementById('builds');
-const SHAPE_CHAR = { circle:'●', x:'✕', triangle:'▲' };
+const SHAPE_CHAR = { circle:'●', x:'✕', triangle:'▲', square:'■', star:'★', diamond:'◆' };
 
 BUILDINGS.forEach((b, i)=>{
   const el = document.createElement('div');
