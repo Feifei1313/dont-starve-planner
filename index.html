@@ -282,14 +282,17 @@ const TEXT_COLORS = [
   '#c2555a','#3fa89a'
 ];
 
+/* ★ 建筑定义：带 radius2 / gameUnit2 的会有第二圈 */
 const BUILDINGS = [
-  { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'diamond',   gameUnit:9.5  },
+  { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'circle',   gameUnit:9.5  },
   { name:'冰眼结晶器', radius:8.75,  color:'#2f6fd9', shape:'circle',   gameUnit:35   },
   { name:'雪球发射器', radius:3.75,  color:'#4db8e0', shape:'x',        gameUnit:15   },
   { name:'避雷针',     radius:10,    color:'#3a9c3a', shape:'triangle', gameUnit:40   },
-  { name:'蘑菇灯',     radius:2.875, color:'#c95ac9', shape:'square',   gameUnit:11.5 },
+  { name:'蘑菇灯',     radius:2.875, color:'#c95ac9', shape:'circle',   gameUnit:11.5 },
   { name:'菌伞灯',     radius:2.675, color:'#3fa89a', shape:'circle',   gameUnit:10.7 },
-  { name:'疙瘩树',     radius:5.5,   color:'#8b5a2b', shape:'circle',   gameUnit:22   }
+  { name:'疙瘩树',     radius:5.5,   color:'#8b5a2b', shape:'circle',   gameUnit:22   },
+  // ★ 亮茄：内圈攻击范围 3 格，外圈不寄生范围 7.5 格
+  { name:'亮茄',       radius:3,     radius2:7.5,      color:'#8b4a8b', shape:'star',     gameUnit:12, gameUnit2:30 }
 ];
 
 let W = 100, H = 100;
@@ -406,6 +409,24 @@ function drawIcon(c, cx, cy, b, size){
     c.lineTo(cx, cy+size*1.1);
     c.lineTo(cx-size, cy);
     c.closePath(); c.fill();
+  }else{
+    // 默认圆
+    c.beginPath(); c.arc(cx, cy, size, 0, Math.PI*2); c.fill();
+  }
+}
+
+/* ★ 通用：绘制一个点位的所有圈（1个或2个） */
+function strokePointCircles(c, cx, cy, b, unit, alphaMain, alphaSub){
+  c.beginPath();
+  c.arc(cx, cy, b.radius*unit, 0, Math.PI*2);
+  c.strokeStyle = hexA(b.color, alphaMain);
+  c.stroke();
+
+  if(b.radius2){
+    c.beginPath();
+    c.arc(cx, cy, b.radius2*unit, 0, Math.PI*2);
+    c.strokeStyle = hexA(b.color, alphaSub);
+    c.stroke();
   }
 }
 
@@ -463,7 +484,6 @@ function render(){
   ctx.rect(offX, offY, mapW, mapH);
   ctx.clip();
 
-  // 细网格
   if(scale >= 4.5){
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,255,0.13)';
@@ -479,7 +499,6 @@ function render(){
     ctx.stroke();
   }
 
-  // ★ 大粗线恢复实线
   if(scale >= 2){
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,255,0.26)';
@@ -504,25 +523,22 @@ function render(){
 
   const iconS = clamp(scale*0.36, 4, 9);
 
-  /* ============ 点位与半径（★ 已放置的圈改成虚线） ============ */
+  /* ============ 点位与半径（★ 已放置：虚线，支持双圈） ============ */
   if(points.length){
     ctx.save();
-    ctx.setLineDash([6, 5]);   // ★ 屏幕上的虚线
+    ctx.setLineDash([6, 5]);
     ctx.lineWidth = 2;
     for(const p of points){
       const b = BUILDINGS[p.t];
       const cx = offX + p.x*scale;
       const cy = offY + p.y*scale;
-      const r  = b.radius*scale;
-      if(r < 2.5) continue;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI*2);
-      ctx.strokeStyle = hexA(b.color, 0.78);
-      ctx.stroke();
+      // 内圈（主半径）
+      if(b.radius*scale >= 2.5){
+        strokePointCircles(ctx, cx, cy, b, scale, 0.78, 0.45);
+      }
     }
     ctx.restore();
 
-    // 图标依然是实心
     for(const p of points){
       const b = BUILDINGS[p.t];
       const cx = offX + p.x*scale;
@@ -559,10 +575,7 @@ function render(){
       ctx.save();
       ctx.setLineDash([6,5]);
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, b.radius*scale, 0, Math.PI*2);
-      ctx.strokeStyle = hexA(b.color, 0.45);
-      ctx.stroke();
+      strokePointCircles(ctx, cx, cy, b, scale, 0.5, 0.28);
       ctx.restore();
 
       ctx.globalAlpha = 0.55;
@@ -596,7 +609,10 @@ function drawLegend(){
   let maxW = 0;
   for(const ti of list){
     const b = BUILDINGS[ti];
-    const label = `${b.name} (半径${b.gameUnit}, ${b.radius}格)`;
+    // ★ 有第二圈的显示两段信息
+    const label = b.radius2
+      ? `${b.name} 攻击${b.radius}格 / 不寄生${b.radius2}格`
+      : `${b.name} (半径${b.gameUnit}, ${b.radius}格)`;
     const w = ctx.measureText(label).width;
     if(w > maxW) maxW = w;
   }
@@ -617,7 +633,10 @@ function drawLegend(){
     ctx.font = '12px system-ui,sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${b.name} (半径${b.gameUnit}, ${b.radius}格)`, x+pad+20, cy);
+    const label = b.radius2
+      ? `${b.name} 攻击${b.radius}格 / 不寄生${b.radius2}格`
+      : `${b.name} (半径${b.gameUnit}, ${b.radius}格)`;
+    ctx.fillText(label, x+pad+20, cy);
   });
 }
 
@@ -815,7 +834,6 @@ function paintLine(x0,y0,x1,y1){
   }
 }
 
-/* 填充：同色连通区域扩散 */
 function floodFill(sx, sy, newC){
   if(sx<0||sy<0||sx>=W||sy>=H) return false;
   const start = sy*W+sx;
@@ -939,7 +957,6 @@ canvas.addEventListener('pointerdown', e=>{
 
   const p = getPos(e);
 
-  /* ---------- 填充 ---------- */
   if(tool === 'fill'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
     if(e.button !== 0) return;
@@ -957,7 +974,6 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
-  /* ---------- 点位 ---------- */
   if(tool === 'place'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
 
@@ -1000,7 +1016,6 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
-  /* ---------- 文字 ---------- */
   if(tool === 'text'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
     if(e.button !== 0) return;
@@ -1014,7 +1029,6 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
-  /* ---------- 画笔 ---------- */
   if(e.button !== 0) return;
 
   if(editingText) commitTextEditor();
@@ -1238,10 +1252,12 @@ BUILDINGS.forEach((b, i)=>{
   const el = document.createElement('div');
   el.className = 'bld' + (i===0 ? ' on' : '');
   el.dataset.i = i;
+  // ★ 有第二圈的显示两个数字
+  const radText = b.radius2 ? `${b.gameUnit}/${b.gameUnit2}` : `${b.gameUnit}`;
   el.innerHTML =
-    `<span class="bico" style="color:${b.color}">${SHAPE_CHAR[b.shape]}</span>` +
+    `<span class="bico" style="color:${b.color}">${SHAPE_CHAR[b.shape] || '●'}</span>` +
     `<span class="bname">${b.name}</span>` +
-    `<span class="brad">${b.gameUnit}</span>`;
+    `<span class="brad">${radText}</span>`;
   el.addEventListener('click', ()=>{
     setBuilding(i);
     setTool('place');
@@ -1322,7 +1338,6 @@ document.getElementById('sizeSel').addEventListener('change', e=>{
   setSize(n,n);
 });
 
-/* ★ 导出 PNG */
 document.getElementById('export').addEventListener('click', ()=>{
   const cell = 24;
   const c = document.createElement('canvas');
@@ -1335,7 +1350,6 @@ document.getElementById('export').addEventListener('click', ()=>{
   g.fillRect(0,0,c.width,c.height);
   g.drawImage(dc, 0,0,W,H, 0,0,c.width,c.height);
 
-  // 细网格
   g.strokeStyle = 'rgba(255,255,255,0.11)';
   g.lineWidth = 1;
   g.beginPath();
@@ -1343,7 +1357,6 @@ document.getElementById('export').addEventListener('click', ()=>{
   for(let y=1;y<H;y++){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
   g.stroke();
 
-  // ★ 大粗线恢复实线
   g.strokeStyle = 'rgba(255,255,255,0.28)';
   g.beginPath();
   for(let x=gridSize;x<W;x+=gridSize){ g.moveTo(x*cell+0.5,0); g.lineTo(x*cell+0.5,c.height); }
@@ -1352,19 +1365,26 @@ document.getElementById('export').addEventListener('click', ()=>{
 
   const iconS = 9;
 
-  /* ★ 导出的半径圈改成虚线 */
   if(points.length){
     g.save();
-    g.setLineDash([12, 10]);   // 导出时虚线间隔大一点
+    g.setLineDash([12, 10]);
     g.lineWidth = 3;
     for(const p of points){
       const b = BUILDINGS[p.t];
       const cx = p.x*cell;
       const cy = p.y*cell;
+      // 主圈
       g.beginPath();
       g.arc(cx, cy, b.radius*cell, 0, Math.PI*2);
       g.strokeStyle = hexA(b.color, 0.78);
       g.stroke();
+      // 第二圈
+      if(b.radius2){
+        g.beginPath();
+        g.arc(cx, cy, b.radius2*cell, 0, Math.PI*2);
+        g.strokeStyle = hexA(b.color, 0.45);
+        g.stroke();
+      }
     }
     g.restore();
 
@@ -1384,7 +1404,7 @@ document.getElementById('export').addEventListener('click', ()=>{
   toast('已导出图片');
 });
 
-const STORE_KEY = 'turf_planner_v14';
+const STORE_KEY = 'turf_planner_v15';
 
 function u8ToB64(u8){
   let s='';
@@ -1404,7 +1424,7 @@ document.getElementById('save').addEventListener('click', ()=>{
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
       w:W, h:H, d:u8ToB64(data), pts:points, txs:texts,
-      tc:textColor, ts:textScale, am:alignMode, gs:gridSize, v:14
+      tc:textColor, ts:textScale, am:alignMode, gs:gridSize, v:15
     }));
     toast('已保存到浏览器');
   }catch(err){
