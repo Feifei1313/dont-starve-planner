@@ -172,6 +172,7 @@
 
 <header>
   <button data-tool="brush" class="active" title="画笔 (B)">🖌 画笔</button>
+  <button data-tool="fill" title="填充 (F)">🪣 填充</button>
   <button data-tool="drag" title="拖拽画布 (D)">✋ 拖拽</button>
   <button data-tool="place" title="放置点位 (P)">📍 点位</button>
   <button data-tool="text" title="文字标注 (T)">📝 文字</button>
@@ -234,7 +235,7 @@
   <main id="stage">
     <canvas id="board"></canvas>
     <input id="textInput" type="text" maxlength="20" autocomplete="off">
-    <div class="hint" id="hintBar">画笔：左键涂色 · 点位：左键放置 / 右键删除 · 文字：左键编辑 · 拖拽：按住任意键移动</div>
+    <div class="hint" id="hintBar">画笔：左键涂色 · 填充：左键填充 · 点位：左键放置 · 文字：左键编辑 · 拖拽：按住任意键移动</div>
   </main>
 </div>
 
@@ -443,6 +444,7 @@ function render(){
   ctx.rect(offX, offY, mapW, mapH);
   ctx.clip();
 
+  // 细网格
   if(scale >= 4.5){
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,255,0.13)';
@@ -458,6 +460,7 @@ function render(){
     ctx.stroke();
   }
 
+  // ★ 大粗线恢复实线
   if(scale >= 2){
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,255,0.26)';
@@ -482,7 +485,10 @@ function render(){
 
   const iconS = clamp(scale*0.36, 4, 9);
 
+  /* ============ 点位与半径（★ 已放置的圈改成虚线） ============ */
   if(points.length){
+    ctx.save();
+    ctx.setLineDash([6, 5]);   // ★ 屏幕上的虚线
     ctx.lineWidth = 2;
     for(const p of points){
       const b = BUILDINGS[p.t];
@@ -495,6 +501,9 @@ function render(){
       ctx.strokeStyle = hexA(b.color, 0.78);
       ctx.stroke();
     }
+    ctx.restore();
+
+    // 图标依然是实心
     for(const p of points){
       const b = BUILDINGS[p.t];
       const cx = offX + p.x*scale;
@@ -508,10 +517,10 @@ function render(){
 
   if(!panning && hoverX>=0 && hoverX<W && hoverY>=0 && hoverY<H){
 
-    if(tool === 'brush' && scale >= 4){
+    if((tool === 'brush' || tool === 'fill') && scale >= 4){
       const px = offX + hoverX*scale;
       const py = offY + hoverY*scale;
-      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.strokeStyle = tool === 'fill' ? 'rgba(217,164,65,0.95)' : 'rgba(255,255,255,0.95)';
       ctx.lineWidth = 2;
       ctx.strokeRect(Math.round(px)-1, Math.round(py)-1,
                      Math.round(scale)+2, Math.round(scale)+2);
@@ -787,6 +796,35 @@ function paintLine(x0,y0,x1,y1){
   }
 }
 
+/* 填充：同色连通区域扩散 */
+function floodFill(sx, sy, newC){
+  if(sx<0||sy<0||sx>=W||sy>=H) return false;
+  const start = sy*W+sx;
+  const target = data[start];
+  if(target === newC) return false;
+
+  const stack = [start];
+  data[start] = newC;
+  let changed = 0;
+
+  while(stack.length){
+    const i = stack.pop();
+    changed++;
+    const x = i % W;
+    const y = (i / W) | 0;
+    if(x > 0   && data[i-1] === target){ data[i-1] = newC; stack.push(i-1); }
+    if(x < W-1 && data[i+1] === target){ data[i+1] = newC; stack.push(i+1); }
+    if(y > 0   && data[i-W] === target){ data[i-W] = newC; stack.push(i-W); }
+    if(y < H-1 && data[i+W] === target){ data[i+W] = newC; stack.push(i+W); }
+  }
+
+  if(target === 0 && newC !== 0) paintedCount += changed;
+  else if(target !== 0 && newC === 0) paintedCount -= changed;
+
+  rebuild();
+  return true;
+}
+
 function snap(){
   return {
     d: data.slice(),
@@ -861,6 +899,7 @@ function resize(){
 
 function cursorForTool(){
   if(tool === 'drag')  return 'grab';
+  if(tool === 'fill')  return 'crosshair';
   if(tool === 'place') return 'crosshair';
   if(tool === 'text')  return 'text';
   return 'crosshair';
@@ -881,6 +920,25 @@ canvas.addEventListener('pointerdown', e=>{
 
   const p = getPos(e);
 
+  /* ---------- 填充 ---------- */
+  if(tool === 'fill'){
+    if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
+    if(e.button !== 0) return;
+
+    const g = toGrid(p.x, p.y);
+    if(g.x>=0 && g.y>=0 && g.x<W && g.y<H){
+      pushHistory();
+      if(floodFill(g.x, g.y, cur)){
+        updateInfo(); scheduleRender();
+      }else{
+        history.pop();
+        updateHistoryUI();
+      }
+    }
+    return;
+  }
+
+  /* ---------- 点位 ---------- */
   if(tool === 'place'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
 
@@ -923,6 +981,7 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
+  /* ---------- 文字 ---------- */
   if(tool === 'text'){
     if(e.button === 1 || (spaceDown && e.button === 0)){ startPan(e); return; }
     if(e.button !== 0) return;
@@ -936,6 +995,7 @@ canvas.addEventListener('pointerdown', e=>{
     return;
   }
 
+  /* ---------- 画笔 ---------- */
   if(e.button !== 0) return;
 
   if(editingText) commitTextEditor();
@@ -1042,6 +1102,7 @@ window.addEventListener('keydown', e=>{
 
   switch(e.key.toLowerCase()){
     case 'b': setTool('brush'); break;
+    case 'f': setTool('fill');  break;
     case 'd': setTool('drag');  break;
     case 'p': setTool('place'); break;
     case 't': setTool('text');  break;
@@ -1199,6 +1260,7 @@ function setTool(t){
 
   const hint = document.getElementById('hintBar');
   if(t === 'brush')      hint.textContent = '画笔：左键涂色 · 滚轮缩放';
+  else if(t === 'fill')  hint.textContent = '填充：左键点击填充同色连通区域（闭合区域会停在边界内）';
   else if(t === 'place') hint.textContent = alignMode === 'cross'
                           ? '点位：吸附到最近的交叉点 · 点击已有点位或右键删除'
                           : '点位：放在格子正中心 · 点击已有点位或右键删除';
@@ -1241,6 +1303,7 @@ document.getElementById('sizeSel').addEventListener('change', e=>{
   setSize(n,n);
 });
 
+/* ★ 导出 PNG */
 document.getElementById('export').addEventListener('click', ()=>{
   const cell = 24;
   const c = document.createElement('canvas');
@@ -1253,6 +1316,7 @@ document.getElementById('export').addEventListener('click', ()=>{
   g.fillRect(0,0,c.width,c.height);
   g.drawImage(dc, 0,0,W,H, 0,0,c.width,c.height);
 
+  // 细网格
   g.strokeStyle = 'rgba(255,255,255,0.11)';
   g.lineWidth = 1;
   g.beginPath();
@@ -1260,6 +1324,7 @@ document.getElementById('export').addEventListener('click', ()=>{
   for(let y=1;y<H;y++){ g.moveTo(0,y*cell+0.5); g.lineTo(c.width,y*cell+0.5); }
   g.stroke();
 
+  // ★ 大粗线恢复实线
   g.strokeStyle = 'rgba(255,255,255,0.28)';
   g.beginPath();
   for(let x=gridSize;x<W;x+=gridSize){ g.moveTo(x*cell+0.5,0); g.lineTo(x*cell+0.5,c.height); }
@@ -1267,19 +1332,27 @@ document.getElementById('export').addEventListener('click', ()=>{
   g.stroke();
 
   const iconS = 9;
-  g.lineWidth = 3;
-  for(const p of points){
-    const b = BUILDINGS[p.t];
-    const cx = p.x*cell;
-    const cy = p.y*cell;
-    g.beginPath();
-    g.arc(cx, cy, b.radius*cell, 0, Math.PI*2);
-    g.strokeStyle = hexA(b.color, 0.78);
-    g.stroke();
-  }
-  for(const p of points){
-    const b = BUILDINGS[p.t];
-    drawIcon(g, p.x*cell, p.y*cell, b, iconS);
+
+  /* ★ 导出的半径圈改成虚线 */
+  if(points.length){
+    g.save();
+    g.setLineDash([12, 10]);   // 导出时虚线间隔大一点
+    g.lineWidth = 3;
+    for(const p of points){
+      const b = BUILDINGS[p.t];
+      const cx = p.x*cell;
+      const cy = p.y*cell;
+      g.beginPath();
+      g.arc(cx, cy, b.radius*cell, 0, Math.PI*2);
+      g.strokeStyle = hexA(b.color, 0.78);
+      g.stroke();
+    }
+    g.restore();
+
+    for(const p of points){
+      const b = BUILDINGS[p.t];
+      drawIcon(g, p.x*cell, p.y*cell, b, iconS);
+    }
   }
 
   const expTextPx = clamp(cell * 0.85 * textScale, 4, 120);
@@ -1292,7 +1365,7 @@ document.getElementById('export').addEventListener('click', ()=>{
   toast('已导出图片');
 });
 
-const STORE_KEY = 'turf_planner_v12';
+const STORE_KEY = 'turf_planner_v14';
 
 function u8ToB64(u8){
   let s='';
@@ -1312,7 +1385,7 @@ document.getElementById('save').addEventListener('click', ()=>{
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
       w:W, h:H, d:u8ToB64(data), pts:points, txs:texts,
-      tc:textColor, ts:textScale, am:alignMode, gs:gridSize, v:12
+      tc:textColor, ts:textScale, am:alignMode, gs:gridSize, v:14
     }));
     toast('已保存到浏览器');
   }catch(err){
