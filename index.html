@@ -200,6 +200,9 @@
       <button id="alignCenter" class="on">格子中心</button>
       <button id="alignCross">交叉点</button>
     </div>
+    <div class="align-row">
+      <button id="togglePoints" class="on" style="font-size:12px;">👁 显示点位</button>
+    </div>
     <div id="builds"></div>
     <button class="side-btn" id="clearPts">清空所有点位</button>
 
@@ -282,16 +285,14 @@ const TEXT_COLORS = [
   '#c2555a','#3fa89a'
 ];
 
-/* ★ 建筑定义：带 radius2 / gameUnit2 的会有第二圈 */
 const BUILDINGS = [
   { name:'龙鳞火炉',   radius:2.375, color:'#e0402c', shape:'circle',   gameUnit:9.5  },
-  { name:'冰眼结晶器', radius:8.75,  color:'#2f6fd9', shape:'diamond',   gameUnit:35   },
+  { name:'冰眼结晶器', radius:8.75,  color:'#2f6fd9', shape:'diamond',  gameUnit:35   },
   { name:'雪球发射器', radius:3.75,  color:'#4db8e0', shape:'x',        gameUnit:15   },
   { name:'避雷针',     radius:10,    color:'#3a9c3a', shape:'triangle', gameUnit:40   },
   { name:'蘑菇灯',     radius:2.875, color:'#c95ac9', shape:'circle',   gameUnit:11.5 },
-  { name:'菌伞灯',     radius:2.675, color:'#ffeaa7', shape:'circle',   gameUnit:10.7 },
+  { name:'菌伞灯',     radius:2.675, color:'#f5e6a8', shape:'circle',   gameUnit:10.7 },
   { name:'疙瘩树',     radius:5.5,   color:'#8b5a2b', shape:'square',   gameUnit:22   },
-  // ★ 亮茄：内圈攻击范围 3 格，外圈不寄生范围 7.5 格
   { name:'亮茄',       radius:3,     radius2:7.5,      color:'#00c9a7', shape:'star',     gameUnit:12, gameUnit2:30 }
 ];
 
@@ -305,6 +306,7 @@ let textColor = '#000000';
 let textScale = 1.0;
 let alignMode = 'center';
 let gridSize  = 9;
+let showPoints = true;   // ★ 点位图层开关
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -410,12 +412,10 @@ function drawIcon(c, cx, cy, b, size){
     c.lineTo(cx-size, cy);
     c.closePath(); c.fill();
   }else{
-    // 默认圆
     c.beginPath(); c.arc(cx, cy, size, 0, Math.PI*2); c.fill();
   }
 }
 
-/* ★ 通用：绘制一个点位的所有圈（1个或2个） */
 function strokePointCircles(c, cx, cy, b, unit, alphaMain, alphaSub){
   c.beginPath();
   c.arc(cx, cy, b.radius*unit, 0, Math.PI*2);
@@ -523,8 +523,8 @@ function render(){
 
   const iconS = clamp(scale*0.36, 4, 9);
 
-  /* ============ 点位与半径（★ 已放置：虚线，支持双圈） ============ */
-  if(points.length){
+  /* ============ 点位与半径（★ 受图层开关控制） ============ */
+  if(points.length && showPoints){
     ctx.save();
     ctx.setLineDash([6, 5]);
     ctx.lineWidth = 2;
@@ -532,7 +532,6 @@ function render(){
       const b = BUILDINGS[p.t];
       const cx = offX + p.x*scale;
       const cy = offY + p.y*scale;
-      // 内圈（主半径）
       if(b.radius*scale >= 2.5){
         strokePointCircles(ctx, cx, cy, b, scale, 0.78, 0.45);
       }
@@ -561,7 +560,7 @@ function render(){
                      Math.round(scale)+2, Math.round(scale)+2);
     }
 
-    if(tool === 'place'){
+    if(tool === 'place' && showPoints){
       const b = BUILDINGS[curB];
       let cx, cy;
       if(alignMode === 'cross'){
@@ -593,7 +592,7 @@ function render(){
     }
   }
 
-  drawLegend();
+  if(showPoints) drawLegend();
 }
 
 function drawLegend(){
@@ -609,7 +608,6 @@ function drawLegend(){
   let maxW = 0;
   for(const ti of list){
     const b = BUILDINGS[ti];
-    // ★ 有第二圈的显示两段信息
     const label = b.radius2
       ? `${b.name} 攻击${b.radius}格 / 不寄生${b.radius2}格`
       : `${b.name} (半径${b.gameUnit}, ${b.radius}格)`;
@@ -704,6 +702,7 @@ function toCross(px,py){
 }
 
 function hitPoint(px, py){
+  if(!showPoints) return -1;
   const hitR = clamp(scale*0.6, 10, 16);
   for(let i=points.length-1;i>=0;i--){
     const p  = points[i];
@@ -1196,6 +1195,16 @@ function setAlign(m){
 alignCenterEl.addEventListener('click', ()=>setAlign('center'));
 alignCrossEl .addEventListener('click', ()=>setAlign('cross'));
 
+/* ★ 点位图层开关 */
+const togglePointsEl = document.getElementById('togglePoints');
+function setShowPoints(v){
+  showPoints = v;
+  togglePointsEl.classList.toggle('on', v);
+  togglePointsEl.textContent = v ? '👁 显示点位' : '🚫 隐藏点位';
+  scheduleRender();
+}
+togglePointsEl.addEventListener('click', ()=>setShowPoints(!showPoints));
+
 const grid8El  = document.getElementById('grid8');
 const grid9El  = document.getElementById('grid9');
 const grid10El = document.getElementById('grid10');
@@ -1252,7 +1261,6 @@ BUILDINGS.forEach((b, i)=>{
   const el = document.createElement('div');
   el.className = 'bld' + (i===0 ? ' on' : '');
   el.dataset.i = i;
-  // ★ 有第二圈的显示两个数字
   const radText = b.radius2 ? `${b.gameUnit}/${b.gameUnit2}` : `${b.gameUnit}`;
   el.innerHTML =
     `<span class="bico" style="color:${b.color}">${SHAPE_CHAR[b.shape] || '●'}</span>` +
@@ -1365,7 +1373,8 @@ document.getElementById('export').addEventListener('click', ()=>{
 
   const iconS = 9;
 
-  if(points.length){
+  // ★ 导出也受图层开关控制
+  if(points.length && showPoints){
     g.save();
     g.setLineDash([12, 10]);
     g.lineWidth = 3;
@@ -1373,12 +1382,10 @@ document.getElementById('export').addEventListener('click', ()=>{
       const b = BUILDINGS[p.t];
       const cx = p.x*cell;
       const cy = p.y*cell;
-      // 主圈
       g.beginPath();
       g.arc(cx, cy, b.radius*cell, 0, Math.PI*2);
       g.strokeStyle = hexA(b.color, 0.78);
       g.stroke();
-      // 第二圈
       if(b.radius2){
         g.beginPath();
         g.arc(cx, cy, b.radius2*cell, 0, Math.PI*2);
@@ -1404,7 +1411,7 @@ document.getElementById('export').addEventListener('click', ()=>{
   toast('已导出图片');
 });
 
-const STORE_KEY = 'turf_planner_v15';
+const STORE_KEY = 'turf_planner_v16';
 
 function u8ToB64(u8){
   let s='';
@@ -1424,7 +1431,7 @@ document.getElementById('save').addEventListener('click', ()=>{
   try{
     localStorage.setItem(STORE_KEY, JSON.stringify({
       w:W, h:H, d:u8ToB64(data), pts:points, txs:texts,
-      tc:textColor, ts:textScale, am:alignMode, gs:gridSize, v:15
+      tc:textColor, ts:textScale, am:alignMode, gs:gridSize, sp:showPoints, v:16
     }));
     toast('已保存到浏览器');
   }catch(err){
@@ -1455,6 +1462,7 @@ document.getElementById('load').addEventListener('click', ()=>{
     if(typeof o.ts === 'number') textScale = o.ts;
     if(o.am === 'cross' || o.am === 'center') alignMode = o.am;
     if(o.gs === 8 || o.gs === 9 || o.gs === 10) gridSize = o.gs;
+    if(typeof o.sp === 'boolean') showPoints = o.sp;
 
     [...textColorsEl.children].forEach(c=>{
       c.classList.toggle('on', c.dataset.c === textColor);
@@ -1466,6 +1474,7 @@ document.getElementById('load').addEventListener('click', ()=>{
     grid8El .classList.toggle('on', gridSize === 8);
     grid9El .classList.toggle('on', gridSize === 9);
     grid10El.classList.toggle('on', gridSize === 10);
+    setShowPoints(showPoints);
 
     countPainted();
     history.length = 0; future.length = 0;
